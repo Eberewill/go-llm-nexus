@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/willexm1/go-llm-nexus/internal/core/ports"
 )
@@ -18,7 +19,9 @@ type OpenAIProvider struct {
 func NewOpenAIProvider(apiKey string) *OpenAIProvider {
 	return &OpenAIProvider{
 		apiKey: apiKey,
-		client: &http.Client{},
+		client: &http.Client{
+			Timeout: 30 * time.Second, // 30 second timeout
+		},
 	}
 }
 
