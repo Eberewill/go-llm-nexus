@@ -3,6 +3,9 @@
 run:
 	go run cmd/server/main.go
 
+run-client:
+	go run cmd/client/main.go -prompt "Why is the sky blue?" -provider openai
+
 build:
 	go build -o bin/server cmd/server/main.go
 
