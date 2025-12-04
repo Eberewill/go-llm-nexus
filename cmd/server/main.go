@@ -5,11 +5,11 @@ import (
 	"log"
 	"net"
 
-	"github.com/willexm1/llm-backend-showcase/internal/config"
-	"github.com/willexm1/llm-backend-showcase/internal/core/services"
-	grpcHandler "github.com/willexm1/llm-backend-showcase/internal/adapters/handler/grpc"
-	"github.com/willexm1/llm-backend-showcase/internal/adapters/repository"
-	pb "github.com/willexm1/llm-backend-showcase/api/proto/v1"
+	"github.com/willexm1/go-llm-nexus/internal/config"
+	"github.com/willexm1/go-llm-nexus/internal/core/services"
+	grpcHandler "github.com/willexm1/go-llm-nexus/internal/adapters/handler/grpc"
+	"github.com/willexm1/go-llm-nexus/internal/adapters/repository"
+	pb "github.com/willexm1/go-llm-nexus/api/proto/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )

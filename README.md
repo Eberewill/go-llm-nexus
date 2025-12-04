@@ -1,4 +1,4 @@
-# Production Ready LLM Backend Showcase
+# go-llm-nexus
 
 This repository demonstrates a production-grade backend architecture using Go, gRPC, Redis, PostgreSQL, and modular LLM integration. It is designed to be fast, lightweight, and easily deployable to cloud functions or containerized environments.
 

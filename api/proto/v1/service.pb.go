@@ -220,7 +220,7 @@ const file_api_proto_v1_service_proto_rawDesc = "" +
 	"\x0fPROVIDER_GEMINI\x10\x022?\n" +
 	"\n" +
 	"LLMService\x121\n" +
-	"\x0eProcessRequest\x12\x0e.v1.LLMRequest\x1a\x0f.v1.LLMResponseB7Z5github.com/willexm1/llm-backend-showcase/api/proto/v1b\x06proto3"
+	"\x0eProcessRequest\x12\x0e.v1.LLMRequest\x1a\x0f.v1.LLMResponseB/Z-github.com/willexm1/go-llm-nexus/api/proto/v1b\x06proto3"
 
 var (
 	file_api_proto_v1_service_proto_rawDescOnce sync.Once

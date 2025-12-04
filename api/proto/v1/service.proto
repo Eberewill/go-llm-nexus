@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package v1;
 
-option go_package = "github.com/willexm1/llm-backend-showcase/api/proto/v1";
+option go_package = "github.com/willexm1/go-llm-nexus/api/proto/v1";
 
 service LLMService {
   rpc ProcessRequest (LLMRequest) returns (LLMResponse);

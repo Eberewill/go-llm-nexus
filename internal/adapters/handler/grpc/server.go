@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	pb "github.com/willexm1/llm-backend-showcase/api/proto/v1"
-	"github.com/willexm1/llm-backend-showcase/internal/core/ports"
-	"github.com/willexm1/llm-backend-showcase/internal/core/services"
+	pb "github.com/willexm1/go-llm-nexus/api/proto/v1"
+	"github.com/willexm1/go-llm-nexus/internal/core/ports"
+	"github.com/willexm1/go-llm-nexus/internal/core/services"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

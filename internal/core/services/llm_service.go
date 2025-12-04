@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/willexm1/llm-backend-showcase/internal/config"
-	"github.com/willexm1/llm-backend-showcase/internal/adapters/llm"
-	"github.com/willexm1/llm-backend-showcase/internal/core/ports"
+	"github.com/willexm1/go-llm-nexus/internal/config"
+	"github.com/willexm1/go-llm-nexus/internal/adapters/llm"
+	"github.com/willexm1/go-llm-nexus/internal/core/ports"
 )
 
 type LLMService struct {

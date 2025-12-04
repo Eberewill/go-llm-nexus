@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/willexm1/llm-backend-showcase/internal/core/ports"
+	"github.com/willexm1/go-llm-nexus/internal/core/ports"
 )
 
 type PostgresRepository struct {

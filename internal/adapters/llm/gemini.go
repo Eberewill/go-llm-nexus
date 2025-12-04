@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/willexm1/llm-backend-showcase/internal/core/ports"
+	"github.com/willexm1/go-llm-nexus/internal/core/ports"
 )
 
 type GeminiProvider struct {
