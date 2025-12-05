@@ -1,4 +1,4 @@
-.PHONY: run build test up down
+.PHONY: run build test up down proto
 
 run:
 	go run cmd/server/main.go
@@ -14,3 +14,6 @@ up:
 
 down:
 	docker-compose down
+
+proto:
+	@echo "skipping proto generation (no protobuf sources)"
