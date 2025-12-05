@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -15,13 +16,37 @@ type mockProvider struct {
 }
 
 func (m *mockProvider) Generate(ctx context.Context, req ports.LLMRequest) (*ports.LLMResponse, error) {
-	return &ports.LLMResponse{Content: "mock response from " + m.name}, nil
+	return &ports.LLMResponse{
+		Content: "mock response from " + m.name,
+		Usage: &ports.UsageInfo{
+			PromptTokens:     5,
+			CompletionTokens: 10,
+			TotalTokens:      15,
+			CostUSD:          0.001,
+		},
+	}, nil
 }
 func (m *mockProvider) Name() string { return m.name }
 
-type mockRepo struct{}
+type mockRepo struct {
+	users map[string]*ports.User
+}
 
 func (m *mockRepo) LogRequest(ctx context.Context, log ports.RequestLog) error { return nil }
+func (m *mockRepo) CreateUser(ctx context.Context, name string) (*ports.User, error) {
+	if m.users == nil {
+		m.users = make(map[string]*ports.User)
+	}
+	user := &ports.User{ID: "user-" + name, Name: name, CreatedAt: time.Now()}
+	m.users[user.ID] = user
+	return user, nil
+}
+func (m *mockRepo) GetUser(ctx context.Context, id string) (*ports.User, error) {
+	if user, ok := m.users[id]; ok {
+		return user, nil
+	}
+	return nil, fmt.Errorf("user not found")
+}
 
 type mockCache struct {
 	data map[string]string
@@ -39,56 +64,30 @@ func (m *mockCache) Set(ctx context.Context, key string, value string, ttl time.
 }
 
 func TestLLMService_ProcessRequest(t *testing.T) {
-	// Setup
-	/*
-	cfg := &config.Config{
-		LLM: config.LLMConfig{
-			OpenAIKey: "test",
-			GeminiKey: "test",
-		},
-	}
-	*/
-	repo := &mockRepo{}
+	repo := &mockRepo{users: map[string]*ports.User{
+		"user-123": {ID: "user-123", Name: "Test", CreatedAt: time.Now()},
+	}}
 	cache := &mockCache{data: make(map[string]string)}
-	
-	// svc := NewLLMService(cfg, repo, cache) // Unused for now
+	cfg := &config.Config{}
+	svc := NewLLMService(cfg, repo, cache)
+	svc.providers = map[string]ports.LLMProvider{
+		"mock": &mockProvider{name: "mock"},
+	}
 
-	// Inject mocks manually since NewLLMService creates real providers
-	// In a real scenario, we'd pass a factory or use dependency injection for providers too.
-	// For this test, we'll overwrite the providers map if we could, but it's private.
-	// So we will test the integration with the "real" NewLLMService logic but we can't easily mock the providers 
-	// without changing the service structure to accept providers.
-	
-	// Refactoring Service for Testability:
-	// To make this testable without making network calls, we should allow injecting providers.
-	// But for now, let's just test the Cache logic if we can, or refactor the service.
-	
-	// Actually, let's refactor the service slightly in the test setup or just use the public API.
-	// Since NewLLMService instantiates struct implementations, we can't mock them easily without network calls.
-	// Ideally, we should pass a `ProviderFactory` or a map of providers to the constructor.
-	
-	// Let's assume for this "Showcase" we want to demonstrate testability. 
-	// I will modify the test to just test the cache logic if possible, 
-	// OR I will modify the Service to be more testable.
-	
-	// Let's use a trick: We can't easily modify the private map. 
-	// So I will just write a test that mocks the Cache and Repo, 
-	// but for the Provider, it will try to make a request if I don't mock it.
-	
-	// DECISION: I will update the `NewLLMService` to be `NewLLMService(cfg, repo, cache, providers map[string]ports.LLMProvider)` 
-	// or add a `WithProviders` option.
-	
-	// For simplicity in this step, I will just add a test that verifies the structure compiles 
-	// and maybe test the "No Provider" error case which doesn't need network.
-	
 	ctx := context.Background()
-	req := ports.LLMRequest{Prompt: "Hello"}
+	req := ports.LLMRequest{UserID: "user-123", Prompt: "Hello"}
 
-	// Test 1: No Provider Configured (if we pass empty config)
-	emptyCfg := &config.Config{}
-	svcEmpty := NewLLMService(emptyCfg, repo, cache)
-	_, _, err := svcEmpty.ProcessRequest(ctx, req, "")
-	if err == nil {
-		t.Error("Expected error when no providers configured")
+	resp, provider, err := svc.ProcessRequest(ctx, req, "mock")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if provider != "mock" {
+		t.Fatalf("expected provider 'mock', got %s", provider)
+	}
+	if resp.Content == "" {
+		t.Fatalf("expected content in response")
+	}
+	if resp.Usage == nil || resp.Usage.TotalTokens == 0 {
+		t.Fatalf("expected usage data in response")
 	}
 }

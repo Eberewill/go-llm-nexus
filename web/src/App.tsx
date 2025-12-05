@@ -1,10 +1,32 @@
 import { useState, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Sparkles } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, LogIn } from 'lucide-react';
+
+interface UsageMetrics {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  costUsd?: number;
+}
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   provider?: string;
+  usage?: UsageMetrics;
+}
+
+interface ApiUsagePayload {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd?: number | null;
+}
+
+interface GenerateResponse {
+  content: string;
+  provider_used: string;
+  processing_time_ms: number;
+  usage?: ApiUsagePayload;
 }
 
 function App() {
@@ -13,12 +35,22 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [provider, setProvider] = useState('openai');
   const [serverStatus, setServerStatus] = useState<'healthy' | 'unhealthy' | 'checking'>('checking');
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userName, setUserName] = useState('');
+  const [nameInput, setNameInput] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [showRegistration, setShowRegistration] = useState(false);
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
+
+  const apiBase = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+  const apiUrl = (path: string) => `${apiBase}${path}`;
 
   // Health check
   useEffect(() => {
+    const endpoint = apiUrl('/api/health');
     const checkHealth = async () => {
       try {
-        const response = await fetch('http://localhost:8080/api/health');
+        const response = await fetch(endpoint);
         if (response.ok) {
           setServerStatus('healthy');
         } else {
@@ -32,11 +64,28 @@ function App() {
     checkHealth();
     const interval = setInterval(checkHealth, 10000);
     return () => clearInterval(interval);
+  }, [apiBase]);
+
+  // Load persisted user identity
+  useEffect(() => {
+    const storedId = localStorage.getItem('llm-nexus-user-id');
+    const storedName = localStorage.getItem('llm-nexus-user-name');
+    if (storedId && storedName) {
+      setUserId(storedId);
+      setUserName(storedName);
+      setShowRegistration(false);
+    } else {
+      setShowRegistration(true);
+    }
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
+    if (!userId) {
+      setShowRegistration(true);
+      return;
+    }
 
     const userMsg: Message = { role: 'user', content: input };
     setMessages(prev => [...prev, userMsg]);
@@ -44,10 +93,11 @@ function App() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8080/api/generate', {
+      const response = await fetch(apiUrl('/api/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          user_id: userId,
           prompt: input,
           provider: provider,
           temperature: 0.7,
@@ -60,12 +110,21 @@ function App() {
         throw new Error(`Server error: ${errorText}`);
       }
 
-      const data = await response.json();
+      const data: GenerateResponse = await response.json();
+      const usage: UsageMetrics | undefined = data.usage
+        ? {
+            promptTokens: data.usage.prompt_tokens,
+            completionTokens: data.usage.completion_tokens,
+            totalTokens: data.usage.total_tokens,
+            costUsd: data.usage.cost_usd ?? undefined,
+          }
+        : undefined;
 
       const botMsg: Message = {
         role: 'assistant',
         content: data.content,
-        provider: data.provider_used
+        provider: data.provider_used,
+        usage,
       };
       setMessages(prev => [...prev, botMsg]);
     } catch (error) {
@@ -75,6 +134,50 @@ function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const registerUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nameInput.trim()) {
+      setRegistrationError('Please enter your name.');
+      return;
+    }
+
+    try {
+      setIsRegistering(true);
+      setRegistrationError(null);
+      const response = await fetch(apiUrl('/api/users'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nameInput.trim() })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to register');
+      }
+
+      const data = await response.json();
+      setUserId(data.id);
+      setUserName(data.name);
+      localStorage.setItem('llm-nexus-user-id', data.id);
+      localStorage.setItem('llm-nexus-user-name', data.name);
+      setNameInput('');
+      setShowRegistration(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Registration failed';
+      setRegistrationError(message);
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
+  const clearIdentity = () => {
+    localStorage.removeItem('llm-nexus-user-id');
+    localStorage.removeItem('llm-nexus-user-name');
+    setUserId(null);
+    setUserName('');
+    setShowRegistration(true);
   };
 
   return (
@@ -112,14 +215,40 @@ function App() {
                 </span>
               </div>
             </div>
-            <select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              className="bg-gradient-to-br from-amber-50 to-yellow-50 border-2 border-amber-300/50 rounded-xl px-4 py-2 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all hover:shadow-md cursor-pointer"
-            >
-              <option value="openai">OpenAI GPT</option>
-              <option value="gemini">Google Gemini</option>
-            </select>
+            <div className="flex items-center gap-3">
+              {userId ? (
+                <div className="text-right">
+                  <p className="text-xs uppercase text-stone-400">Signed in as</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-stone-700">{userName}</span>
+                    <button
+                      type="button"
+                      onClick={clearIdentity}
+                      className="text-xs text-amber-700 hover:text-amber-900 font-medium"
+                    >
+                      Switch
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowRegistration(true)}
+                  className="flex items-center gap-2 bg-white/80 border border-amber-300 rounded-xl px-4 py-2 text-sm font-medium text-amber-700 hover:bg-white"
+                >
+                  <LogIn size={16} /> Set Name
+                </button>
+              )}
+
+              <select
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                className="bg-gradient-to-br from-amber-50 to-yellow-50 border-2 border-amber-300/50 rounded-xl px-4 py-2 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all hover:shadow-md cursor-pointer"
+              >
+                <option value="openai">OpenAI GPT</option>
+                <option value="gemini">Google Gemini</option>
+              </select>
+            </div>
           </div>
         </div>
       </header>
@@ -148,7 +277,7 @@ function App() {
                   className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}
                   style={{ animationDelay: `${idx * 50}ms` }}
                 >
-                  <div className={`max-w-[75%] rounded-2xl px-5 py-3 shadow-md transition-all hover:shadow-lg ${msg.role === 'user'
+                  <div className={`w-full max-w-full sm:max-w-[75%] rounded-2xl px-5 py-3 shadow-md transition-all hover:shadow-lg ${msg.role === 'user'
                     ? 'bg-gradient-to-br from-amber-600 to-amber-700 text-white rounded-br-sm'
                     : 'bg-gradient-to-br from-stone-50 to-amber-50 text-stone-900 border border-amber-200/50 rounded-bl-sm'
                     }`}>
@@ -162,7 +291,19 @@ function App() {
                         {msg.role === 'user' ? 'You' : msg.provider || 'Assistant'}
                       </span>
                     </div>
-                    <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                    <p className="whitespace-pre-wrap leading-relaxed break-words">{msg.content}</p>
+                    {msg.usage && (
+                      <div className={`mt-3 text-[11px] uppercase tracking-wide flex flex-wrap gap-3 ${msg.role === 'user' ? 'text-amber-100/80' : 'text-amber-700/80'}`}>
+                        <span>
+                          Tokens: {msg.usage.promptTokens} in / {msg.usage.completionTokens} out (total {msg.usage.totalTokens})
+                        </span>
+                        {typeof msg.usage.costUsd === 'number' && msg.usage.costUsd > 0 && (
+                          <span>
+                            Cost: ${msg.usage.costUsd.toFixed(5)}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -184,7 +325,7 @@ function App() {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Type your message..."
+                  placeholder={userId ? 'Type your message...' : 'Enter your name to start chatting'}
                   className="flex-1 bg-white/80 border-2 border-amber-200/50 rounded-xl px-5 py-3 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all placeholder:text-stone-400 text-stone-900 shadow-sm hover:shadow-md"
                 />
                 <button
@@ -199,6 +340,45 @@ function App() {
           </div>
         </div>
       </div>
+
+      {showRegistration && (
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-30">
+          <form onSubmit={registerUser} className="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl border border-amber-200">
+            <h2 className="text-2xl font-bold text-stone-800 mb-2">Welcome to LLM Nexus</h2>
+            <p className="text-sm text-stone-500 mb-6">
+              Add your name so we can keep a secure audit log of your prompts.
+            </p>
+            <input
+              type="text"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Your name"
+              className="w-full border-2 border-amber-200/60 rounded-xl px-4 py-3 mb-3 focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
+            {registrationError && (
+              <p className="text-sm text-red-600 mb-3">{registrationError}</p>
+            )}
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                disabled={isRegistering}
+                className="flex-1 bg-gradient-to-br from-amber-600 to-amber-700 text-white rounded-xl py-3 font-semibold shadow hover:shadow-lg disabled:opacity-50"
+              >
+                {isRegistering ? 'Registering...' : 'Save & Continue'}
+              </button>
+              {userId && (
+                <button
+                  type="button"
+                  onClick={() => setShowRegistration(false)}
+                  className="flex-1 border-2 border-stone-200 rounded-xl py-3 font-semibold text-stone-600"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
 
       <style>{`
         @keyframes fadeIn {
