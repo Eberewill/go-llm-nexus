@@ -3,18 +3,38 @@ package llm
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/willexm1/go-llm-nexus/internal/core/ports"
 	"google.golang.org/genai"
 )
 
 type GeminiProvider struct {
-	apiKey string
+	apiKey          string
+	model           string
+	inputCostPer1K  float64
+	outputCostPer1K float64
+	mu              sync.Mutex
+	client          *genai.Client
 }
 
-func NewGeminiProvider(apiKey string) *GeminiProvider {
+type GeminiConfig struct {
+	APIKey          string
+	Model           string
+	InputCostPer1K  float64
+	OutputCostPer1K float64
+}
+
+func NewGeminiProvider(cfg GeminiConfig) *GeminiProvider {
+	model := cfg.Model
+	if model == "" {
+		model = "gemini-2.0-flash-exp"
+	}
 	return &GeminiProvider{
-		apiKey: apiKey,
+		apiKey:          cfg.APIKey,
+		model:           model,
+		inputCostPer1K:  cfg.InputCostPer1K,
+		outputCostPer1K: cfg.OutputCostPer1K,
 	}
 }
 
@@ -23,9 +43,7 @@ func (p *GeminiProvider) Name() string {
 }
 
 func (p *GeminiProvider) Generate(ctx context.Context, req ports.LLMRequest) (*ports.LLMResponse, error) {
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey: p.apiKey,
-	})
+	client, err := p.clientForRequests()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gemini client: %w", err)
 	}
@@ -33,7 +51,7 @@ func (p *GeminiProvider) Generate(ctx context.Context, req ports.LLMRequest) (*p
 	maxTokens := req.MaxTokens
 	result, err := client.Models.GenerateContent(
 		ctx,
-		"gemini-2.0-flash-exp",
+		p.model,
 		genai.Text(req.Prompt),
 		&genai.GenerateContentConfig{
 			Temperature:     &req.Temperature,
@@ -44,7 +62,37 @@ func (p *GeminiProvider) Generate(ctx context.Context, req ports.LLMRequest) (*p
 		return nil, fmt.Errorf("gemini generation failed: %w", err)
 	}
 
+	usage := &ports.UsageInfo{}
+	if result.UsageMetadata != nil {
+		usage.PromptTokens = result.UsageMetadata.PromptTokenCount
+		usage.CompletionTokens = result.UsageMetadata.CandidatesTokenCount
+		usage.TotalTokens = result.UsageMetadata.TotalTokenCount
+	}
+	usage.CostUSD = p.calculateCost(usage.PromptTokens, usage.CompletionTokens)
+
 	return &ports.LLMResponse{
 		Content: result.Text(),
+		Usage:   usage,
 	}, nil
+}
+
+func (p *GeminiProvider) clientForRequests() (*genai.Client, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.client != nil {
+		return p.client, nil
+	}
+	client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
+		APIKey: p.apiKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+	p.client = client
+	return client, nil
+}
+
+func (p *GeminiProvider) calculateCost(promptTokens, completionTokens int32) float64 {
+	cost := (float64(promptTokens) / 1000.0 * p.inputCostPer1K) + (float64(completionTokens) / 1000.0 * p.outputCostPer1K)
+	return cost
 }

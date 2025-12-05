@@ -19,6 +19,7 @@ func NewHandler(service *services.LLMService) *Handler {
 }
 
 type GenerateRequest struct {
+	UserID      string  `json:"user_id"`
 	Prompt      string  `json:"prompt"`
 	Provider    string  `json:"provider"`
 	Temperature float32 `json:"temperature"`
@@ -26,9 +27,17 @@ type GenerateRequest struct {
 }
 
 type GenerateResponse struct {
-	Content          string `json:"content"`
-	ProviderUsed     string `json:"provider_used"`
-	ProcessingTimeMs int64  `json:"processing_time_ms"`
+	Content          string        `json:"content"`
+	ProviderUsed     string        `json:"provider_used"`
+	ProcessingTimeMs int64         `json:"processing_time_ms"`
+	Usage            *UsagePayload `json:"usage,omitempty"`
+}
+
+type UsagePayload struct {
+	PromptTokens     int32   `json:"prompt_tokens"`
+	CompletionTokens int32   `json:"completion_tokens"`
+	TotalTokens      int32   `json:"total_tokens"`
+	CostUSD          float64 `json:"cost_usd"`
 }
 
 func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
@@ -55,10 +64,17 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[HTTP] Received request - Provider: %s, Prompt: %.50s...", req.Provider, req.Prompt)
+	if req.UserID == "" {
+		log.Printf("[HTTP] Missing user identifier")
+		http.Error(w, "user_id is required", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("[HTTP] Received request - Provider: %s, User: %s, Prompt: %.50s...", req.Provider, req.UserID, req.Prompt)
 
 	start := time.Now()
 	coreReq := ports.LLMRequest{
+		UserID:      req.UserID,
 		Prompt:      req.Prompt,
 		Temperature: req.Temperature,
 		MaxTokens:   req.MaxTokens,
@@ -79,6 +95,7 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		Content:          resp.Content,
 		ProviderUsed:     providerUsed,
 		ProcessingTimeMs: duration.Milliseconds(),
+		Usage:            convertUsage(resp.Usage),
 	})
 }
 
@@ -95,7 +112,71 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "healthy",
+		"status":  "healthy",
 		"service": "go-llm-nexus",
 	})
+}
+
+type registerUserRequest struct {
+	Name string `json:"name"`
+}
+
+type registerUserResponse struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (h *Handler) RegisterUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != "POST" {
+		log.Printf("[HTTP] Method not allowed for register user: %s", r.Method)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req registerUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[HTTP] Failed to decode register user request: %v", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	user, err := h.service.RegisterUser(r.Context(), req.Name)
+	if err != nil {
+		log.Printf("[HTTP] Failed to register user: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(registerUserResponse{
+		ID:        user.ID,
+		Name:      user.Name,
+		CreatedAt: user.CreatedAt,
+	})
+}
+
+func convertUsage(u *ports.UsageInfo) *UsagePayload {
+	if u == nil {
+		return nil
+	}
+	return &UsagePayload{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		TotalTokens:      u.TotalTokens,
+		CostUSD:          u.CostUSD,
+	}
 }

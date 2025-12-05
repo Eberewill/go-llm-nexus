@@ -33,8 +33,14 @@ type RedisConfig struct {
 }
 
 type LLMConfig struct {
-	OpenAIKey string `mapstructure:"OPENAI_API_KEY"`
-	GeminiKey string `mapstructure:"GEMINI_API_KEY"`
+	OpenAIKey             string  `mapstructure:"OPENAI_API_KEY"`
+	GeminiKey             string  `mapstructure:"GEMINI_API_KEY"`
+	OpenAIModel           string  `mapstructure:"OPENAI_MODEL"`
+	GeminiModel           string  `mapstructure:"GEMINI_MODEL"`
+	OpenAIInputCostPer1K  float64 `mapstructure:"OPENAI_INPUT_COST_PER_1K"`
+	OpenAIOutputCostPer1K float64 `mapstructure:"OPENAI_OUTPUT_COST_PER_1K"`
+	GeminiInputCostPer1K  float64 `mapstructure:"GEMINI_INPUT_COST_PER_1K"`
+	GeminiOutputCostPer1K float64 `mapstructure:"GEMINI_OUTPUT_COST_PER_1K"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -43,6 +49,9 @@ func LoadConfig() (*Config, error) {
 
 	// Replace dots with underscores in env variables
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.SetDefault("SERVER_PORT", "8080")
+	viper.SetDefault("OPENAI_MODEL", "gpt-3.5-turbo")
+	viper.SetDefault("GEMINI_MODEL", "gemini-2.0-flash-exp")
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -51,47 +60,58 @@ func LoadConfig() (*Config, error) {
 		// Config file not found; ignore error if desired or rely on env vars
 	}
 
-	var cfg Config
-	
-	// Manually bind env vars if needed, or rely on mapstructure tags with AutomaticEnv
-	// Viper's unmarshal with mapstructure tags works well.
-	
-	// We need to bind specific keys if the structure doesn't match env vars 1:1 automatically
-	// But here we used mapstructure tags which Viper respects.
-	
-	// However, Viper AutomaticEnv doesn't automatically map ENV_VAR to Nested.Field
-	// unless we set a prefix or bind them manually. 
-	// A simpler approach for this demo is to just bind the struct.
-	
-	// Let's bind manually for clarity or use a flat config structure if preferred.
-	// For nested, we usually do:
-	viper.BindEnv("SERVER_PORT")
-	viper.BindEnv("ENV")
-	
-	viper.BindEnv("DB_HOST")
-	viper.BindEnv("DB_PORT")
-	viper.BindEnv("DB_USER")
-	viper.BindEnv("DB_PASSWORD")
-	viper.BindEnv("DB_NAME")
-	
-	viper.BindEnv("REDIS_ADDR")
-	viper.BindEnv("REDIS_PASSWORD")
-	
-	viper.BindEnv("OPENAI_API_KEY")
-	viper.BindEnv("GEMINI_API_KEY")
-
-	if err := viper.Unmarshal(&cfg.Server); err != nil {
-		return nil, err
+	keys := []string{
+		"SERVER_PORT",
+		"ENV",
+		"DB_HOST",
+		"DB_PORT",
+		"DB_USER",
+		"DB_PASSWORD",
+		"DB_NAME",
+		"REDIS_ADDR",
+		"REDIS_PASSWORD",
+		"OPENAI_API_KEY",
+		"GEMINI_API_KEY",
+		"OPENAI_MODEL",
+		"GEMINI_MODEL",
+		"OPENAI_INPUT_COST_PER_1K",
+		"OPENAI_OUTPUT_COST_PER_1K",
+		"GEMINI_INPUT_COST_PER_1K",
+		"GEMINI_OUTPUT_COST_PER_1K",
 	}
-	if err := viper.Unmarshal(&cfg.Database); err != nil {
-		return nil, err
-	}
-	if err := viper.Unmarshal(&cfg.Redis); err != nil {
-		return nil, err
-	}
-	if err := viper.Unmarshal(&cfg.LLM); err != nil {
-		return nil, err
+	for _, key := range keys {
+		if err := viper.BindEnv(key); err != nil {
+			return nil, fmt.Errorf("failed to bind env var %s: %w", key, err)
+		}
 	}
 
-	return &cfg, nil
+	cfg := &Config{
+		Server: ServerConfig{
+			Port: viper.GetString("SERVER_PORT"),
+			Env:  viper.GetString("ENV"),
+		},
+		Database: DatabaseConfig{
+			Host:     viper.GetString("DB_HOST"),
+			Port:     viper.GetString("DB_PORT"),
+			User:     viper.GetString("DB_USER"),
+			Password: viper.GetString("DB_PASSWORD"),
+			Name:     viper.GetString("DB_NAME"),
+		},
+		Redis: RedisConfig{
+			Addr:     viper.GetString("REDIS_ADDR"),
+			Password: viper.GetString("REDIS_PASSWORD"),
+		},
+		LLM: LLMConfig{
+			OpenAIKey:             viper.GetString("OPENAI_API_KEY"),
+			GeminiKey:             viper.GetString("GEMINI_API_KEY"),
+			OpenAIModel:           viper.GetString("OPENAI_MODEL"),
+			GeminiModel:           viper.GetString("GEMINI_MODEL"),
+			OpenAIInputCostPer1K:  viper.GetFloat64("OPENAI_INPUT_COST_PER_1K"),
+			OpenAIOutputCostPer1K: viper.GetFloat64("OPENAI_OUTPUT_COST_PER_1K"),
+			GeminiInputCostPer1K:  viper.GetFloat64("GEMINI_INPUT_COST_PER_1K"),
+			GeminiOutputCostPer1K: viper.GetFloat64("GEMINI_OUTPUT_COST_PER_1K"),
+		},
+	}
+
+	return cfg, nil
 }

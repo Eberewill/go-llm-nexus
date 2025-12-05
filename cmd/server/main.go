@@ -3,18 +3,13 @@ package main
 import (
 	"fmt"
 	"log"
-	"net"
-
 	"net/http"
 
-	"github.com/willexm1/go-llm-nexus/internal/config"
-	"github.com/willexm1/go-llm-nexus/internal/core/services"
-	grpcHandler "github.com/willexm1/go-llm-nexus/internal/adapters/handler/grpc"
 	myHttp "github.com/willexm1/go-llm-nexus/internal/adapters/handler/http"
 	"github.com/willexm1/go-llm-nexus/internal/adapters/repository"
-	pb "github.com/willexm1/go-llm-nexus/api/proto/v1"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
+	"github.com/willexm1/go-llm-nexus/internal/config"
+	"github.com/willexm1/go-llm-nexus/internal/core/ports"
+	"github.com/willexm1/go-llm-nexus/internal/core/services"
 )
 
 func main() {
@@ -25,52 +20,39 @@ func main() {
 	}
 
 	// 2. Initialize Infrastructure
-	// Database
-	dbConnStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s", 
-		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name)
-	repo, err := repository.NewPostgresRepository(dbConnStr)
-	if err != nil {
-		log.Printf("Failed to connect to database: %v. Continuing without DB persistence.", err)
-		// In production, we might want to fail hard, but for demo we can continue or use a mock
+	// Database (optional)
+	var repo ports.Repository
+	if cfg.Database.Host != "" {
+		dbConnStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s",
+			cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.Name)
+		dbRepo, err := repository.NewPostgresRepository(dbConnStr)
+		if err != nil {
+			log.Fatalf("Failed to connect to database (required for user registration): %v", err)
+		}
+		repo = dbRepo
+	} else {
+		log.Fatalf("Database configuration is required to store users")
 	}
 
-	// Redis
-	cache := repository.NewRedisCache(cfg.Redis.Addr, cfg.Redis.Password)
+	// Redis (optional)
+	var cache ports.Cache
+	if cfg.Redis.Addr != "" {
+		cache = repository.NewRedisCache(cfg.Redis.Addr, cfg.Redis.Password)
+	}
 
 	// 3. Initialize Services
 	llmService := services.NewLLMService(cfg, repo, cache)
 
-	// 4. Initialize Servers
-	// HTTP Server (in goroutine)
-	go func() {
-		httpHandler := myHttp.NewHandler(llmService)
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/generate", httpHandler.Generate)
-		mux.HandleFunc("/api/health", httpHandler.Health)
-		
-		log.Printf("HTTP Server listening on port 8080")
-		if err := http.ListenAndServe(":8080", mux); err != nil {
-			log.Fatalf("failed to serve http: %v", err)
-		}
-	}()
+	// 4. HTTP Server only
+	httpHandler := myHttp.NewHandler(llmService)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/generate", httpHandler.Generate)
+	mux.HandleFunc("/api/health", httpHandler.Health)
+	mux.HandleFunc("/api/users", httpHandler.RegisterUser)
 
-	// gRPC Server
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", cfg.Server.Port))
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	s := grpc.NewServer()
-	
-	// Register Handler
-	handler := grpcHandler.NewServer(llmService)
-	pb.RegisterLLMServiceServer(s, handler)
-
-	// Enable reflection for grpcurl
-	reflection.Register(s)
-
-	log.Printf("gRPC Server listening on port %s", cfg.Server.Port)
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+	httpAddr := fmt.Sprintf(":%s", cfg.Server.Port)
+	log.Printf("HTTP Server listening on %s", httpAddr)
+	if err := http.ListenAndServe(httpAddr, mux); err != nil {
+		log.Fatalf("failed to serve http: %v", err)
 	}
 }
